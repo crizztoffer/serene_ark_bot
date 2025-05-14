@@ -3,21 +3,20 @@ import io
 import discord
 import asyncio
 import paramiko
-from arkgame.tribe import ArkTribe
 from dotenv import load_dotenv
+from arkgamepy.tribe import Tribe  # NOTE: changed import for arkgamepy
 
-# Load Railway or local .env variables
+# Load env vars
 load_dotenv()
 
-# ENV variables
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
 SFTP_HOST = os.getenv("SFTP_IP")
 SFTP_PORT = int(os.getenv("SFTP_PORT", 22))
 SFTP_USER = os.getenv("SFTP_USER")
 SFTP_PASS = os.getenv("SFTP_PASSWORD")
-LOG_PATH = os.getenv("LOG_PATH", "/home/container/ShooterGame/Saved/Logs/ShooterGame.log")
-TRIBE_PATH = os.getenv("TRIBE_PATH", "/home/container/ShooterGame/Saved/SavedArks/")
+LOG_PATH = os.getenv("LOG_PATH")
+TRIBE_PATH = os.getenv("TRIBE_PATH")
 DEBUG = os.getenv("DEBUG", "False").lower() == "true"
 
 intents = discord.Intents.default()
@@ -25,13 +24,11 @@ client = discord.Client(intents=intents)
 tribe_lookup = {}
 
 def sftp_connect():
-    """Establish an SFTP connection using Paramiko."""
     transport = paramiko.Transport((SFTP_HOST, SFTP_PORT))
     transport.connect(username=SFTP_USER, password=SFTP_PASS)
     return paramiko.SFTPClient.from_transport(transport)
 
 def fetch_tribes():
-    """Load all .arktribe files and build a tribe lookup dictionary."""
     global tribe_lookup
     try:
         sftp = sftp_connect()
@@ -41,11 +38,11 @@ def fetch_tribes():
                 with sftp.open(path, "rb") as f:
                     data = f.read()
                     try:
-                        tribe = ArkTribe.from_file(io.BytesIO(data))
-                        if tribe.tribe_name:
-                            tribe_lookup[tribe.tribe_id] = tribe.tribe_name
+                        tribe = Tribe(io.BytesIO(data))  # arkgamepy API
+                        if tribe.name:
+                            tribe_lookup[tribe.tribe_id] = tribe.name
                             if DEBUG:
-                                print(f"[DEBUG] Loaded tribe: {tribe.tribe_name} (ID: {tribe.tribe_id})")
+                                print(f"[DEBUG] Loaded tribe: {tribe.name} (ID: {tribe.tribe_id})")
                     except Exception as e:
                         print(f"[ERROR] Failed to parse {filename}: {e}")
         sftp.close()
@@ -53,10 +50,10 @@ def fetch_tribes():
         print(f"[ERROR] SFTP tribe fetch failed: {e}")
 
 async def watch_logs():
-    """Continuously check ShooterGame.log for new death messages."""
     if not DEBUG:
         await client.wait_until_ready()
         channel = client.get_channel(CHANNEL_ID)
+
     last_line = ""
 
     while True:
@@ -66,7 +63,6 @@ async def watch_logs():
                 content = f.read().decode("utf-8", errors="ignore")
                 lines = content.splitlines()
 
-                # Only get new lines since last check
                 if last_line in lines:
                     new_lines = lines[lines.index(last_line) + 1:]
                 else:
@@ -85,6 +81,7 @@ async def watch_logs():
 
                 if lines:
                     last_line = lines[-1]
+
             sftp.close()
 
         except Exception as e:
@@ -105,4 +102,3 @@ if DEBUG:
     asyncio.run(watch_logs())
 else:
     client.run(DISCORD_TOKEN)
-
