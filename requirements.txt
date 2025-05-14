@@ -1,4 +1,5 @@
 paramiko==3.4.0
 python-dotenv==1.0.1
+python-valve==0.2.1
 ark-rcon==0.0.4
 discord.py==2.3.2
