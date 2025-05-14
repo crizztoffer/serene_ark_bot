@@ -1,52 +1,79 @@
 import os
-import io
+import re
+import time
 import paramiko
-from dotenv import load_dotenv
-from arkpy.tribe import Tribe
+import discord
+import asyncio
+from discord.ext import commands
+from arkpy import ark
 
-# Load environment variables
-load_dotenv()
-
+# Load environment variables from Railway
+RCON_HOST = os.getenv("RCON_IP")
+RCON_PORT = int(os.getenv("RCON_PORT", 27020))
+RCON_PASSWORD = os.getenv("RCON_PASSWORD")
 SFTP_HOST = os.getenv("SFTP_IP")
 SFTP_PORT = int(os.getenv("SFTP_PORT", 22))
 SFTP_USER = os.getenv("SFTP_USER")
 SFTP_PASS = os.getenv("SFTP_PASSWORD")
-TRIBE_PATH = os.getenv("TRIBE_PATH", "/home/container/ShooterGame/Saved/SavedArks/")
-DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+LOG_PATH = os.getenv("LOG_PATH", "/home/container/ShooterGame/Saved/Logs/ShooterGame.log")
+DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+DISCORD_CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
+TRIBE_PATH = os.getenv("TRIBE_PATH")  # Fetching TRIBE_PATH from Railway environment variable
+DEBUG = os.getenv("DEBUG", "False").lower() in ("true", "1", "yes")
 
-def debug(msg):
-    if DEBUG:
-        print(f"[DEBUG] {msg}")
+bot = commands.Bot(command_prefix="!")
 
-def sftp_connect():
-    """Establish and return an SFTP client."""
-    transport = paramiko.Transport((SFTP_HOST, SFTP_PORT))
-    transport.connect(username=SFTP_USER, password=SFTP_PASS)
-    debug("Connected to SFTP.")
-    return paramiko.SFTPClient.from_transport(transport)
+# Regular expression to detect dino death lines
+DINO_DEATH_REGEX = re.compile(r"TamedDino Died: (.*?) \(Tribe (.*?)\).+? by (.*?) \(.*?\)")
 
-def list_tribes():
-    """Download and parse .arktribe files using arkpy."""
+# Read Tribe Information (from .arktribe file)
+def get_tribe_info(file_path):
+    tribe = ark.ArkTribe(file_path)
+    members = {mid.value: name.value for name, mid in tribe.members}
+    return members
+
+# Map tribe members from the .arktribe file
+tribe_members = get_tribe_info(TRIBE_PATH)
+
+async def monitor_logs():
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.connect(SFTP_HOST, port=SFTP_PORT, username=SFTP_USER, password=SFTP_PASS)
+    sftp = client.open_sftp()
+
     try:
-        sftp = sftp_connect()
-        files = sftp.listdir(TRIBE_PATH)
-        for filename in files:
-            if filename.endswith(".arktribe"):
-                full_path = os.path.join(TRIBE_PATH, filename)
-                debug(f"Reading tribe file: {filename}")
-                with sftp.open(full_path, "rb") as f:
-                    data = f.read()
-                    try:
-                        tribe = Tribe.from_bytes(data)
-                        print(f"Tribe Name: {tribe.name}")
-                        print(f"Tribe ID: {tribe.id}")
-                        print(f"Members: {[m.name for m in tribe.members]}")
-                        print("-" * 40)
-                    except Exception as e:
-                        print(f"[ERROR] Failed to parse {filename}: {e}")
+        # Open the log file
+        with sftp.open(LOG_PATH, "r") as logfile:
+            logfile.seek(0, 2)  # Move to the end of the file
+
+            while True:
+                line = logfile.readline()
+                if not line:
+                    await asyncio.sleep(1)
+                    continue
+
+                match = DINO_DEATH_REGEX.search(line)
+                if match:
+                    dino, tribe_name, killer = match.groups()
+
+                    # Check if the tribe name is in the members list
+                    if tribe_name in tribe_members:
+                        if DEBUG:
+                            print(f"[DEBUG] Dino: {dino}, Tribe: {tribe_name}, Killed By: {killer}")
+                        else:
+                            channel = bot.get_channel(DISCORD_CHANNEL_ID)
+                            if channel:
+                                await channel.send(
+                                    f"🦖 **{tribe_name}** lost a **{dino}**!\\nKilled by: {killer}"
+                                )
+    finally:
         sftp.close()
-    except Exception as e:
-        print(f"[ERROR] SFTP error: {e}")
+        client.close()
+
+@bot.event
+async def on_ready():
+    print(f"Bot logged in as {bot.user}")
+    bot.loop.create_task(monitor_logs())
 
 if __name__ == "__main__":
-    list_tribes()
+    bot.run(DISCORD_TOKEN)
