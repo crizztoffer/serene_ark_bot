@@ -1,79 +1,70 @@
 import os
 import re
-import time
-import paramiko
-import discord
 import asyncio
-from discord.ext import commands
-from arkpy import ark
+import discord
+import paramiko
+from ark_rcon import ArkRcon
 
 # Load environment variables from Railway
-RCON_HOST = os.getenv("RCON_IP")
-RCON_PORT = int(os.getenv("RCON_PORT", 27020))
-RCON_PASSWORD = os.getenv("RCON_PASSWORD")
-SFTP_HOST = os.getenv("SFTP_IP")
-SFTP_PORT = int(os.getenv("SFTP_PORT", 22))
-SFTP_USER = os.getenv("SFTP_USER")
-SFTP_PASS = os.getenv("SFTP_PASSWORD")
-LOG_PATH = os.getenv("LOG_PATH", "/home/container/ShooterGame/Saved/Logs/ShooterGame.log")
-DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-DISCORD_CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
-TRIBE_PATH = os.getenv("TRIBE_PATH")  # Fetching TRIBE_PATH from Railway environment variable
-DEBUG = os.getenv("DEBUG", "False").lower() in ("true", "1", "yes")
+DISCORD_TOKEN = os.environ["DISCORD_TOKEN"]
+CHANNEL_ID = int(os.environ["CHANNEL_ID"])
+SFTP_IP = os.environ["SFTP_IP"]
+SFTP_PORT = int(os.environ["SFTP_PORT"])
+SFTP_USER = os.environ["SFTP_USER"]
+SFTP_PASSWORD = os.environ["SFTP_PASSWORD"]
+LOG_PATH = os.environ["LOG_PATH"]
+TRIBE_PATH = os.environ["TRIBE_PATH"]
+RCON_IP = os.environ["RCON_IP"]
+RCON_PORT = int(os.environ["RCON_PORT"])
+RCON_PASSWORD = os.environ["RCON_PASSWORD"]
 
-bot = commands.Bot(command_prefix="!")
+intents = discord.Intents.default()
+client = discord.Client(intents=intents)
 
-# Regular expression to detect dino death lines
-DINO_DEATH_REGEX = re.compile(r"TamedDino Died: (.*?) \(Tribe (.*?)\).+? by (.*?) \(.*?\)")
-
-# Read Tribe Information (from .arktribe file)
-def get_tribe_info(file_path):
-    tribe = ark.ArkTribe(file_path)
-    members = {mid.value: name.value for name, mid in tribe.members}
-    return members
-
-# Map tribe members from the .arktribe file
-tribe_members = get_tribe_info(TRIBE_PATH)
-
-async def monitor_logs():
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    client.connect(SFTP_HOST, port=SFTP_PORT, username=SFTP_USER, password=SFTP_PASS)
-    sftp = client.open_sftp()
-
+def fetch_tribe_log_via_sftp():
     try:
-        # Open the log file
-        with sftp.open(LOG_PATH, "r") as logfile:
-            logfile.seek(0, 2)  # Move to the end of the file
+        transport = paramiko.Transport((SFTP_IP, SFTP_PORT))
+        transport.connect(username=SFTP_USER, password=SFTP_PASSWORD)
+        sftp = paramiko.SFTPClient.from_transport(transport)
 
-            while True:
-                line = logfile.readline()
-                if not line:
-                    await asyncio.sleep(1)
-                    continue
+        with sftp.open(TRIBE_PATH, "r") as file:
+            lines = file.readlines()
 
-                match = DINO_DEATH_REGEX.search(line)
-                if match:
-                    dino, tribe_name, killer = match.groups()
-
-                    # Check if the tribe name is in the members list
-                    if tribe_name in tribe_members:
-                        if DEBUG:
-                            print(f"[DEBUG] Dino: {dino}, Tribe: {tribe_name}, Killed By: {killer}")
-                        else:
-                            channel = bot.get_channel(DISCORD_CHANNEL_ID)
-                            if channel:
-                                await channel.send(
-                                    f"🦖 **{tribe_name}** lost a **{dino}**!\\nKilled by: {killer}"
-                                )
-    finally:
         sftp.close()
-        client.close()
+        transport.close()
 
-@bot.event
+        events = []
+        for line in lines:
+            match = re.match(r"\[(.*?)\] (.*?) was killed by (.*?)!", line)
+            if match:
+                timestamp, victim, killer = match.groups()
+                events.append(f"{timestamp}: {victim} was killed by {killer}")
+
+        return events
+    except Exception as e:
+        return [f"❌ Error fetching SFTP logs: {str(e)}"]
+
+def fetch_rcon_log():
+    try:
+        with ArkRcon(RCON_IP, RCON_PORT, RCON_PASSWORD) as rcon:
+            return rcon.command("GetTribeLog")
+    except Exception as e:
+        return f"❌ RCON error: {str(e)}"
+
+@client.event
 async def on_ready():
-    print(f"Bot logged in as {bot.user}")
-    bot.loop.create_task(monitor_logs())
+    print(f"✅ Logged in as {client.user}")
+    channel = client.get_channel(CHANNEL_ID)
 
-if __name__ == "__main__":
-    bot.run(DISCORD_TOKEN)
+    # Tribe log via SFTP
+    sftp_logs = fetch_tribe_log_via_sftp()
+    await channel.send("📄 **Recent Tribe Kills via SFTP:**")
+    for entry in sftp_logs[-5:]:
+        await channel.send(entry)
+
+    # Live tribe log via RCON
+    rcon_log = fetch_rcon_log()
+    await channel.send("📡 **Latest Tribe Log via RCON:**")
+    await channel.send(f"```\n{rcon_log}\n```")
+
+client.run(DISCORD_TOKEN)
