@@ -1,2 +1,4 @@
-paramiko==2.7.2
-python-dotenv==0.10.5
+paramiko==3.4.0
+python-dotenv==1.0.1
+ark-rcon==0.0.4
+discord.py==2.3.2
