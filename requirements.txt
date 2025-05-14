@@ -1,4 +1,4 @@
 discord.py==2.3.2
 paramiko==3.5.1
-git+https://github.com/DerekRies/arkpy.git#egg=arkgamepy
+git+https://github.com/crizztoffer/arkpy.git#egg=arkgamepy
 python-dotenv==1.0.1
