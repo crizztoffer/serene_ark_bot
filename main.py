@@ -1,9 +1,17 @@
 import os
 import time
 import re
+import warnings
 import paramiko
 import discord
 from discord.ext import tasks
+
+# Suppress CryptographyDeprecationWarning from paramiko
+warnings.filterwarnings(
+    "ignore",
+    category=DeprecationWarning,
+    module="paramiko.pkey"
+)
 
 # Environment variables
 SFTP_IP = os.environ["SFTP_IP"]
@@ -17,7 +25,6 @@ DEBUG = os.environ.get("DEBUG", "false").lower() == "true"
 REMOTE_LOG_PATH = "/ShooterGame/Saved/Logs/ShooterGame.log"
 LOCAL_LOG_COPY = "ShooterGame_local.log"
 
-# Regex to match dino death logs
 death_pattern = re.compile(
     r"\[(?P<datetime>\d{4}\.\d{2}\.\d{2}-\d{2}\.\d{2}\.\d{2})\].*?'(?P<tribe>.*?)'s\s(?P<dino>.*?)\swas\skilled\sby\s(?P<killer>.*)"
 )
@@ -50,9 +57,31 @@ async def monitor_log():
 
     try:
         with open(LOCAL_LOG_COPY, 'r', encoding='utf-8', errors='ignore') as f:
-            for line in f:
+            lines = f.readlines()
+
+        global seen_lines
+
+        if DEBUG:
+            # In debug mode, print ALL matched death messages (past and present)
+            print("[DEBUG] Printing all dino death entries in log:")
+            for line in lines:
+                match = death_pattern.search(line)
+                if match:
+                    msg = (
+                        f"🦖 Dino Death Alert\n"
+                        f"📅 Time: {match.group('datetime')}\n"
+                        f"🏹 Tribe: {match.group('tribe')}\n"
+                        f"🦕 Dino: {match.group('dino')}\n"
+                        f"☠️ Killed by: {match.group('killer')}"
+                    )
+                    print(msg)
+            # In debug, we do not update seen_lines, to keep printing all on every loop
+
+        else:
+            # In non-debug mode, only send new messages (never seen before)
+            for line in lines:
                 if line in seen_lines:
-                    continue  # skip already processed lines
+                    continue
 
                 match = death_pattern.search(line)
                 if match:
@@ -64,14 +93,11 @@ async def monitor_log():
                         f"🦕 Dino: {match.group('dino')}\n"
                         f"☠️ Killed by: {match.group('killer')}"
                     )
-                    if DEBUG:
-                        print(msg)
+                    channel = client.get_channel(CHANNEL_ID)
+                    if channel:
+                        await channel.send(msg)
                     else:
-                        channel = client.get_channel(CHANNEL_ID)
-                        if channel:
-                            await channel.send(msg)
-                        else:
-                            print("[DISCORD ERROR] Channel not found")
+                        print("[DISCORD ERROR] Channel not found")
 
     except Exception as e:
         print(f"[ERROR] Reading local log file: {e}")
