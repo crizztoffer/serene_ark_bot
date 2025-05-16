@@ -15,11 +15,14 @@ SFTP_IP = os.environ["SFTP_IP"]
 SFTP_PORT = int(os.environ.get("SFTP_PORT", 22))
 SFTP_USER = os.environ["SFTP_USER"]
 SFTP_PASSWORD = os.environ["SFTP_PASSWORD"]
-LOG_PATH = os.environ["LOG_PATH"]
 DISCORD_TOKEN = os.environ["DISCORD_TOKEN"]
 CHANNEL_ID = int(os.environ["CHANNEL_ID"])
 DEBUG = os.environ.get("DEBUG", "False").lower() == "true"
-TRIBE_PATH = os.environ.get("TRIBE_PATH", "temp.arktribe")  # Default fallback
+
+# Default to a local temp file
+TRIBE_PATH = "temp.arktribe"
+# Remote directory for tribe files
+REMOTE_DIR = "/ShooterGame/Saved/SavedArks"
 
 seen_logs = set()
 
@@ -29,24 +32,45 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-def is_dino_death(msg):
-    return "tame" in msg.lower() and any(
-        k in msg.lower() for k in ["was killed", "was slain", "has died"]
-    )
-
-def fetch_tribe_file():
+def list_arktribe_files():
     try:
         transport = paramiko.Transport((SFTP_IP, SFTP_PORT))
         transport.connect(username=SFTP_USER, password=SFTP_PASSWORD)
         sftp = paramiko.SFTPClient.from_transport(transport)
-        sftp.get(LOG_PATH, TRIBE_PATH)
+
+        files = sftp.listdir(REMOTE_DIR)
+        arktribe_files = [f for f in files if f.endswith(".arktribe")]
+
         sftp.close()
         transport.close()
-        print("[SFTP] Connection successful and file downloaded.")
+
+        print(f"[SFTP] Found .arktribe files: {arktribe_files}")
+        return arktribe_files
+    except Exception as e:
+        print(f"[SFTP ERROR] {e}")
+        return []
+
+def fetch_tribe_file(remote_file):
+    try:
+        transport = paramiko.Transport((SFTP_IP, SFTP_PORT))
+        transport.connect(username=SFTP_USER, password=SFTP_PASSWORD)
+        sftp = paramiko.SFTPClient.from_transport(transport)
+
+        remote_path = f"{REMOTE_DIR}/{remote_file}"
+        sftp.get(remote_path, TRIBE_PATH)
+
+        sftp.close()
+        transport.close()
+        print(f"[SFTP] Successfully downloaded {remote_path} to {TRIBE_PATH}")
         return True
     except Exception as e:
         print(f"[SFTP ERROR] {e}")
         return False
+
+def is_dino_death(msg):
+    return "tame" in msg.lower() and any(
+        k in msg.lower() for k in ["was killed", "was slain", "has died"]
+    )
 
 def get_new_dino_deaths():
     deaths = []
@@ -65,7 +89,13 @@ def get_new_dino_deaths():
 
 @tasks.loop(seconds=10)
 async def monitor_tribe_file():
-    if fetch_tribe_file():
+    arktribe_files = list_arktribe_files()
+    if not arktribe_files:
+        print("[SFTP] No .arktribe files found to download.")
+        return
+
+    # Always fetch the first available tribe file
+    if fetch_tribe_file(arktribe_files[0]):
         deaths = get_new_dino_deaths()
         if deaths:
             for msg in deaths:
