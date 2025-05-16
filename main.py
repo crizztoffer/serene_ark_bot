@@ -1,18 +1,18 @@
 import os
-import time
-import asyncio
 import warnings
+import asyncio
 import paramiko
 import discord
 from discord.ext import commands, tasks
-from arkparse import ArkTribe
+from arkparse import Tribe
+from cryptography.utils import CryptographyDeprecationWarning
 
-# Suppress deprecation warnings (optional)
-warnings.filterwarnings("ignore", category=DeprecationWarning)
+# Suppress CryptographyDeprecationWarning related to TripleDES
+warnings.filterwarnings("ignore", category=CryptographyDeprecationWarning)
 
-# Load environment variables
+# Load env vars
 SFTP_IP = os.environ["SFTP_IP"]
-SFTP_PORT = int(os.environ.get("SFTP_PORT", "22"))
+SFTP_PORT = int(os.environ.get("SFTP_PORT", 22))
 SFTP_USER = os.environ["SFTP_USER"]
 SFTP_PASSWORD = os.environ["SFTP_PASSWORD"]
 LOG_PATH = os.environ["LOG_PATH"]
@@ -20,11 +20,14 @@ DISCORD_TOKEN = os.environ["DISCORD_TOKEN"]
 CHANNEL_ID = int(os.environ["CHANNEL_ID"])
 DEBUG = os.environ.get("DEBUG", "False").lower() == "true"
 
-# Local temp file for download
+# Local temp file
 LOCAL_FILE = "temp.arktribe"
 seen_logs = set()
 
+# Set intents including message_content
 intents = discord.Intents.default()
+intents.message_content = True
+
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 def is_dino_death(msg):
@@ -49,7 +52,7 @@ def get_new_dino_deaths():
     deaths = []
     try:
         with open(LOCAL_FILE, "rb") as f:
-            tribe = ArkTribe(f)
+            tribe = Tribe(f)
         for entry in tribe.log:
             msg = getattr(entry, "message", str(entry))
             if msg not in seen_logs:
