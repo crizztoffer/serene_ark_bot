@@ -75,8 +75,8 @@ def is_dino_death(msg):
 def get_new_dino_deaths():
     deaths = []
     try:
-        with open(TRIBE_PATH, "rb") as f:
-            tribe = ArkTribe(f)
+        # Pass the path string to ArkTribe, not an open file
+        tribe = ArkTribe(TRIBE_PATH)
         for entry in tribe.log:
             msg = getattr(entry, "message", str(entry))
             if msg not in seen_logs:
