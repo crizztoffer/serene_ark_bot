@@ -3,7 +3,7 @@ import time
 import asyncio
 import paramiko
 from discord.ext import commands, tasks
-from arkparse import Tribe
+from arkparse import ArkTribe  # Fixed import
 
 # Load env vars
 SFTP_IP = os.environ["SFTP_IP"]
@@ -44,7 +44,7 @@ def get_new_dino_deaths():
     deaths = []
     try:
         with open(LOCAL_FILE, "rb") as f:
-            tribe = Tribe(f)
+            tribe = ArkTribe(f)  # Use correct class name
         for entry in tribe.log:
             msg = getattr(entry, "message", str(entry))
             if msg not in seen_logs:
