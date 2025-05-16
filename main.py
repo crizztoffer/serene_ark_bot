@@ -35,11 +35,16 @@ def is_dino_death(msg):
     )
 
 def fetch_tribe_file():
+    print("[SFTP] Attempting to connect...")
     try:
         transport = paramiko.Transport((SFTP_IP, SFTP_PORT))
         transport.connect(username=SFTP_USER, password=SFTP_PASSWORD)
+        print("[SFTP] Connection established.")
+
         sftp = paramiko.SFTPClient.from_transport(transport)
         sftp.get(LOG_PATH, LOCAL_FILE)
+        print("[SFTP] File download successful.")
+
         sftp.close()
         transport.close()
         return True
@@ -49,3 +54,15 @@ def fetch_tribe_file():
 
 def get_new_dino_deaths():
     deaths = []
+    try:
+        with open(LOCAL_FILE, "rb") as f:
+            tribe = ArkTribe(f)
+        for entry in tribe.log:
+            msg = getattr(entry, "message", str(entry))
+            if msg not in seen_logs:
+                seen_logs.add(msg)
+                if is_dino_death(msg):
+                    deaths.append(msg)
+    except Exception as e:
+        print(f"[PARSE ERROR] {e}")
+    return deaths
