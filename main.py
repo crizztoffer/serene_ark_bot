@@ -76,7 +76,9 @@ def is_dino_death(msg):
 def get_new_dino_deaths():
     deaths = []
     try:
-        tribe = ArkTribe(Path(TRIBE_PATH))  # ✅ Pass file path directly
+        tribe = ArkTribe(Path(TRIBE_PATH))  # ✅ Parses the .arktribe file
+        print(tribe.to_string_all())        # ✅ Print full tribe data each time
+
         for msg in tribe.tribe_log:
             if msg not in seen_logs:
                 seen_logs.add(msg)
