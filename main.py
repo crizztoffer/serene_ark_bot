@@ -11,7 +11,7 @@ SFTP_PORT = int(os.environ.get("SFTP_PORT", 22))
 SFTP_USER = os.environ["SFTP_USER"]
 SFTP_PASSWORD = os.environ["SFTP_PASSWORD"]
 LOG_PATH = os.environ["LOG_PATH"]
-DISCORD_TOKEN = os.environ["TOKEN"]
+DISCORD_TOKEN = os.environ["DISCORD_TOKEN"]
 CHANNEL_ID = int(os.environ["CHANNEL_ID"])
 DEBUG = os.environ.get("DEBUG", "False").lower() == "true"
 
