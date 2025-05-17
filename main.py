@@ -4,21 +4,21 @@ import warnings
 import paramiko
 import discord
 from discord.ext import tasks
-from cryptography.utils import CryptographyDeprecationWarning  # Import the specific warning
+from cryptography.utils import CryptographyDeprecationWarning
 
-# Suppress Paramiko's CryptographyDeprecationWarning
+# Suppress CryptographyDeprecationWarning from Paramiko
 warnings.filterwarnings(
     "ignore",
     category=CryptographyDeprecationWarning,
     module="paramiko.*"
 )
 
-# Load configuration from environment variables
+# Load environment variables
 SFTP_IP = os.environ["SFTP_IP"]
 SFTP_PORT = int(os.environ.get("SFTP_PORT", 22))
 SFTP_USER = os.environ["SFTP_USER"]
 SFTP_PASSWORD = os.environ["SFTP_PASSWORD"]
-TRIBE_PATH = os.environ["TRIBE_PATH"]  # remote path, e.g. /ShooterGame/Saved/Tribes/12345678.arktribe
+TRIBE_PATH = os.environ["TRIBE_PATH"]
 DISCORD_TOKEN = os.environ["DISCORD_TOKEN"]
 CHANNEL_ID = int(os.environ["CHANNEL_ID"])
 DEBUG = os.environ.get("DEBUG", "false").lower() == "true"
@@ -47,7 +47,7 @@ def fetch_tribe_file():
         return False
 
 def extract_tribe_logs(filepath):
-    """Extract death logs only from the tribe file."""
+    """Extract only death-related log entries from the binary .arktribe file."""
     logs = []
     try:
         with open(filepath, "rb") as f:
@@ -61,8 +61,10 @@ def extract_tribe_logs(filepath):
                         continue
                     string_bytes = data[pos:pos + length - 1]
                     pos += length
-                    log_entry = string_bytes.decode("utf-8", errors="ignore")
-                    if "was killed by" in log_entry:  # ONLY death entries
+                    log_entry = string_bytes.decode("utf-8", errors="ignore").strip()
+
+                    # Normalize and filter death logs
+                    if any(kw in log_entry.lower() for kw in ["was killed", "was slain", "destroyed by"]):
                         logs.append(log_entry)
                 except Exception:
                     break
@@ -79,11 +81,13 @@ async def monitor_tribe_log():
     global seen_entries
 
     for entry in logs:
-        if DEBUG:
-            print(f"[DEBUG] Death Log Entry: {entry}")  # only deaths printed in debug
         if entry not in seen_entries:
             seen_entries.add(entry)
             msg = f"🦖 Dino Death Alert\n📝 {entry}"
+
+            if DEBUG:
+                print(f"[DEBUG] Sending: {msg}")
+
             channel = client.get_channel(CHANNEL_ID)
             if channel:
                 try:
