@@ -34,8 +34,6 @@ seen_entries = set()
 LOG_PATTERNS = {
     "death": [
         r"\bwas killed by\b",
-        r"\bwas slain by\b",
-        r"\bwas destroyed by\b",
         r"\bdied\b",
     ],
     # Add more categories as needed
@@ -91,8 +89,7 @@ def extract_tribe_logs(filepath, category_filter=None):
         pass
     return logs
 
-seen_entries = set()
-first_run = True  # Add this flag
+first_run = True
 
 @tasks.loop(seconds=3)
 async def monitor_tribe_log():
@@ -104,13 +101,10 @@ async def monitor_tribe_log():
     logs = extract_tribe_logs(LOCAL_TRIBE_COPY, category_filter="death")
 
     if first_run:
-        # Just add all existing entries on first run, no notify
-        for entry in logs:
-            seen_entries.add(entry)
+        seen_entries.update(logs)
         first_run = False
-        return  # Skip sending any messages this iteration
+        return
 
-    # From now on notify only on new entries
     for entry in logs:
         if entry not in seen_entries:
             seen_entries.add(entry)
@@ -122,8 +116,9 @@ async def monitor_tribe_log():
                 if channel:
                     try:
                         await channel.send(msg)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        if DEBUG:
+                            print(f"[ERROR] Failed to send message to Discord: {e}")
 
 @client.event
 async def on_ready():
