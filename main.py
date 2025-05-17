@@ -4,12 +4,13 @@ import warnings
 import paramiko
 import discord
 from discord.ext import tasks
+from cryptography.utils import CryptographyDeprecationWarning  # Import the specific warning
 
 # Suppress Paramiko's CryptographyDeprecationWarning
 warnings.filterwarnings(
     "ignore",
-    category=DeprecationWarning,
-    module="paramiko.pkey"
+    category=CryptographyDeprecationWarning,
+    module="paramiko.*"
 )
 
 # Load configuration from environment variables
