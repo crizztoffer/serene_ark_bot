@@ -1,6 +1,7 @@
 import os
 import struct
 import warnings
+import re
 import paramiko
 import discord
 from discord.ext import tasks
@@ -17,7 +18,7 @@ SFTP_IP = os.environ["SFTP_IP"]
 SFTP_PORT = int(os.environ.get("SFTP_PORT", 22))
 SFTP_USER = os.environ["SFTP_USER"]
 SFTP_PASSWORD = os.environ["SFTP_PASSWORD"]
-TRIBE_PATH = os.environ["TRIBE_PATH"]  # remote path, e.g. /ShooterGame/Saved/Tribes/12345678.arktribe
+TRIBE_PATH = os.environ["TRIBE_PATH"]
 DISCORD_TOKEN = os.environ["DISCORD_TOKEN"]
 CHANNEL_ID = int(os.environ["CHANNEL_ID"])
 DEBUG = os.environ.get("DEBUG", "false").lower() == "true"
@@ -28,6 +29,25 @@ intents = discord.Intents.default()
 client = discord.Client(intents=intents)
 
 seen_entries = set()
+
+# --- CATEGORY DEFINITIONS ---
+LOG_PATTERNS = {
+    "death": [
+        r"\bwas killed by\b",
+        r"\bwas slain by\b",
+        r"\bwas destroyed by\b",
+        r"\bdied\b",
+    ],
+    # Add more categories as needed
+}
+
+def classify_log(entry):
+    """Classify log entry based on predefined patterns."""
+    for category, patterns in LOG_PATTERNS.items():
+        for pattern in patterns:
+            if re.search(pattern, entry, re.IGNORECASE):
+                return category
+    return None
 
 def fetch_tribe_file():
     """Download tribe file via SFTP."""
@@ -45,8 +65,8 @@ def fetch_tribe_file():
         print(f"[SFTP ERROR] {e}")
         return False
 
-def extract_tribe_logs(filepath):
-    """Extract death logs only from the tribe file."""
+def extract_tribe_logs(filepath, category_filter=None):
+    """Extract log entries and optionally filter by category."""
     logs = []
     try:
         with open(filepath, "rb") as f:
@@ -61,7 +81,10 @@ def extract_tribe_logs(filepath):
                     string_bytes = data[pos:pos + length - 1]
                     pos += length
                     log_entry = string_bytes.decode("utf-8", errors="ignore")
-                    if "was killed by" in log_entry:  # ONLY death entries
+                    if category_filter:
+                        if classify_log(log_entry) == category_filter:
+                            logs.append(log_entry)
+                    else:
                         logs.append(log_entry)
                 except Exception:
                     break
@@ -74,12 +97,12 @@ async def monitor_tribe_log():
     if not fetch_tribe_file():
         return
 
-    logs = extract_tribe_logs(LOCAL_TRIBE_COPY)
+    logs = extract_tribe_logs(LOCAL_TRIBE_COPY, category_filter="death")
     global seen_entries
 
     for entry in logs:
         if DEBUG:
-            print(f"[DEBUG] Death Log Entry: {entry}")  # only deaths printed in debug
+            print(f"[DEBUG] Death Log Entry: {entry}")
         if entry not in seen_entries:
             seen_entries.add(entry)
             msg = f"🦖 Dino Death Alert\n📝 {entry}"
