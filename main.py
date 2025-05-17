@@ -103,15 +103,15 @@ async def monitor_tribe_log():
         if entry not in seen_entries:
             seen_entries.add(entry)
             msg = f"🦖 Dino Death Alert\n📝 {entry}"
-            channel = client.get_channel(CHANNEL_ID)
-            if channel:
-                try:
-                    await channel.send(msg)
-                    # Print only the dino death alert to console
-                    print(msg)
-                except Exception:
-                    # Silence any send errors; no print
-                    pass
+            if DEBUG:
+                print(msg)
+            else:
+                channel = client.get_channel(CHANNEL_ID)
+                if channel:
+                    try:
+                        await channel.send(msg)
+                    except Exception:
+                        pass
 
 @client.event
 async def on_ready():
