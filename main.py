@@ -1,10 +1,10 @@
 import os
+import struct
 import warnings
 import paramiko
 import discord
 from discord.ext import tasks
 from cryptography.utils import CryptographyDeprecationWarning
-from pathlib import Path
 
 # Suppress CryptographyDeprecationWarning from Paramiko
 warnings.filterwarnings(
@@ -21,7 +21,6 @@ SFTP_PASSWORD = os.environ["SFTP_PASSWORD"]
 TRIBE_PATH = os.environ["TRIBE_PATH"]
 DISCORD_TOKEN = os.environ["DISCORD_TOKEN"]
 CHANNEL_ID = int(os.environ["CHANNEL_ID"])
-TRIBE_ID = os.environ.get("TRIBE_ID")  # New env variable for filtering logs
 
 LOCAL_TRIBE_COPY = "tribe_local.arktribe"
 
@@ -42,41 +41,29 @@ def fetch_tribe_file():
     except Exception:
         return False
 
-def extract_tribe_logs(path, tribe_id):
-    """
-    Extracts death logs from a tribe file or directory for a given tribe ID.
-
-    Args:
-        path (str): Path to the .arktribe file or directory containing .arktribe files.
-        tribe_id (str): Tribe ID to search for in the files.
-
-    Returns:
-        list[str]: List of death log strings.
-    """
-    tribe_path = Path(path)
+def extract_tribe_logs(filepath):
     logs = []
+    try:
+        with open(filepath, "rb") as f:
+            data = f.read()
+            pos = 0
+            while pos < len(data) - 4:
+                try:
+                    length = struct.unpack_from("<i", data, pos)[0]
+                    pos += 4
+                    if length <= 0 or pos + length > len(data):
+                        continue
+                    string_bytes = data[pos:pos + length - 1]
+                    pos += length
+                    log_entry = string_bytes.decode("utf-8", errors="ignore").strip()
 
-    if tribe_path.is_dir():
-        files = tribe_path.glob("*.arktribe")
-    else:
-        files = [tribe_path]
-
-    for file in files:
-        try:
-            with file.open("rb") as f:
-                content = f.read().decode("utf-8", errors="ignore")
-                if tribe_id not in content:
-                    continue
-                # Split logs by each line starting with "Day"
-                entries = content.split("Day")
-                for entry in entries:
-                    if "died" in entry or "was killed by" in entry:
-                        # Prepend "Day" back and get first line of entry
-                        log_line = "Day" + entry.strip().splitlines()[0]
-                        logs.append(log_line)
-        except Exception as e:
-            print(f"Failed to read {file}: {e}")
-
+                    # Filter only death-related logs
+                    if any(kw in log_entry.lower() for kw in ["was killed", "was slain", "destroyed by"]):
+                        logs.append(log_entry)
+                except Exception:
+                    break
+    except Exception:
+        pass
     return logs
 
 @tasks.loop(seconds=10)
@@ -84,17 +71,12 @@ async def monitor_tribe_log():
     if not fetch_tribe_file():
         return
 
-    logs = extract_tribe_logs(LOCAL_TRIBE_COPY, TRIBE_ID)
+    logs = extract_tribe_logs(LOCAL_TRIBE_COPY)
     global seen_entries
 
     for entry in logs:
         if entry not in seen_entries:
             seen_entries.add(entry)
-
-            # Print new dino death to console
-            print(f"[DEATH] {entry}")
-
-            # Send to Discord
             channel = client.get_channel(CHANNEL_ID)
             if channel:
                 try:
