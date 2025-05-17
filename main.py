@@ -41,7 +41,14 @@ def fetch_tribe_file():
     except Exception:
         return False
 
+def parse_arktribe_file(filepath):
+    """Reads the entire tribe file (no output needed here, just placeholder)."""
+    with open(filepath, "rb") as f:
+        data = f.read()
+    return data
+
 def extract_tribe_logs(filepath):
+    """Extract only death-related tribe log entries."""
     logs = []
     try:
         with open(filepath, "rb") as f:
@@ -71,18 +78,25 @@ async def monitor_tribe_log():
     if not fetch_tribe_file():
         return
 
-    logs = extract_tribe_logs(LOCAL_TRIBE_COPY)
+    # Parse entire tribe file (currently no output or usage, can be extended)
+    _ = parse_arktribe_file(LOCAL_TRIBE_COPY)
+
+    # Now extract only death logs from tribe file
+    death_logs = extract_tribe_logs(LOCAL_TRIBE_COPY)
+
     global seen_entries
 
-    for entry in logs:
+    channel = client.get_channel(CHANNEL_ID)
+    if not channel:
+        return
+
+    for entry in death_logs:
         if entry not in seen_entries:
             seen_entries.add(entry)
-            channel = client.get_channel(CHANNEL_ID)
-            if channel:
-                try:
-                    await channel.send(f"🦖 Dino Death Alert\n📝 {entry}")
-                except Exception:
-                    pass
+            try:
+                await channel.send(f"🦖 Dino Death Alert\n📝 {entry}")
+            except Exception:
+                pass
 
 @client.event
 async def on_ready():
