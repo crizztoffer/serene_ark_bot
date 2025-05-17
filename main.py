@@ -4,6 +4,7 @@ import warnings
 import paramiko
 import discord
 import logging
+import re
 from discord.ext import tasks
 from cryptography.utils import CryptographyDeprecationWarning
 
@@ -39,6 +40,23 @@ client = discord.Client(intents=intents)
 
 seen_entries = set()
 
+def clean_metadata(raw_text):
+    # Remove lines that contain non-printable/control characters or metadata patterns
+    # Customize the regex to catch specific unwanted parts.
+    lines = raw_text.splitlines()
+    clean_lines = []
+
+    for line in lines:
+        # Remove lines with unusual control chars or known metadata tags
+        if re.search(r'[\x00-\x1F\x7F]|PrimalTribeData|RichColor|TribeName|TribeLog|PlayerDataID', line):
+            continue
+        # Skip empty or whitespace only lines
+        if line.strip() == '':
+            continue
+        clean_lines.append(line)
+
+    return '\n'.join(clean_lines)
+
 def fetch_tribe_file():
     try:
         transport = paramiko.Transport((SFTP_IP, SFTP_PORT))
@@ -65,11 +83,16 @@ def extract_tribe_logs(filepath):
                         continue
                     string_bytes = data[pos:pos + length - 1]
                     pos += length
-                    log_entry = string_bytes.decode("utf-8", errors="ignore").strip()
-
-                    # Filter only death-related logs
-                    if any(kw in log_entry.lower() for kw in ["was killed", "was slain", "destroyed by"]):
-                        logs.append(log_entry)
+                    log_entry = string_bytes.decode("utf-8", errors="ignore")
+                    
+                    # Clean the metadata lines out of the log_entry text
+                    cleaned_log_entry = clean_metadata(log_entry)
+                    
+                    # Filter only death-related logs after cleaning
+                    # Note: clean_metadata may return multiple lines, check each
+                    for line in cleaned_log_entry.splitlines():
+                        if any(kw in line.lower() for kw in ["was killed", "was slain", "destroyed by"]):
+                            logs.append(line)
                 except Exception:
                     break
     except Exception:
