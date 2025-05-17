@@ -32,10 +32,8 @@ LOG_PATTERNS = {
     "death": [
         r"\bwas killed by\b",
         r"\bwas slain by\b",
-        r"\bwas destroyed by\b",
         r"\bdied\b",
     ],
-    # Add more categories as needed
 }
 
 def classify_log(entry):
@@ -86,6 +84,15 @@ def extract_tribe_logs(filepath, category_filter=None):
             print(f"[ERROR] Reading tribe file failed: {e}")
     return logs
 
+def clean_log_entry(entry):
+    # Remove timestamp prefix (e.g., "Day 123, 12:34:56: ")
+    entry = re.sub(r"^Day \d+, \d{2}:\d{2}:\d{2}:\s*", "", entry)
+    # Remove RichColor tag
+    entry = re.sub(r"<RichColor Color=\"[^\"]+\">", "", entry)
+    # Remove closing tag
+    entry = entry.replace("</>", "")
+    return entry
+
 def send_discord_webhook(message):
     try:
         response = requests.post(DISCORD_WEBHOOK, json={"content": message})
@@ -98,9 +105,11 @@ def send_discord_webhook(message):
 
 def monitor_loop():
     global first_run, seen_entries
+    import time
 
     while True:
         if not fetch_tribe_file():
+            time.sleep(CHECK_INTERVAL)
             continue
 
         logs = extract_tribe_logs(LOCAL_TRIBE_COPY, category_filter="death")
@@ -112,12 +121,12 @@ def monitor_loop():
             for entry in logs:
                 if entry not in seen_entries:
                     seen_entries.add(entry)
-                    msg = f"🦖 Dino Death Alert\n📝 {entry}"
+                    cleaned = clean_log_entry(entry)
+                    msg = f"🦖 Dino Death Alert\n{cleaned}"
                     if DEBUG:
                         print(msg)
                     send_discord_webhook(msg)
 
-        import time
         time.sleep(CHECK_INTERVAL)
 
 if __name__ == "__main__":
