@@ -57,8 +57,8 @@ def extract_tribe_logs(filepath):
                     pos += length
                     log_entry = string_bytes.decode("utf-8", errors="ignore").strip()
 
-                    # Filter only death-related logs
-                    if any(kw in log_entry.lower() for kw in ["was killed", "was slain", "destroyed by"]):
+                    # Only include entries with "was killed by"
+                    if "was killed by" in log_entry:
                         logs.append(log_entry)
                 except Exception:
                     break
@@ -77,6 +77,11 @@ async def monitor_tribe_log():
     for entry in logs:
         if entry not in seen_entries:
             seen_entries.add(entry)
+
+            # Print new dino death to console
+            print(f"[DEATH] {entry}")
+
+            # Send to Discord
             channel = client.get_channel(CHANNEL_ID)
             if channel:
                 try:
