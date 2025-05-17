@@ -3,8 +3,7 @@ import struct
 import warnings
 import re
 import paramiko
-import discord
-from discord.ext import tasks
+import requests
 
 # Suppress Paramiko's CryptographyDeprecationWarning
 warnings.filterwarnings(
@@ -19,28 +18,27 @@ SFTP_PORT = int(os.environ.get("SFTP_PORT", 22))
 SFTP_USER = os.environ["SFTP_USER"]
 SFTP_PASSWORD = os.environ["SFTP_PASSWORD"]
 TRIBE_PATH = os.environ["TRIBE_PATH"]
-DISCORD_TOKEN = os.environ["DISCORD_TOKEN"]
-CHANNEL_ID = int(os.environ["CHANNEL_ID"])
+DISCORD_WEBHOOK = os.environ["DISCORD_WEBHOOK"]
 DEBUG = os.environ.get("DEBUG", "false").lower() == "true"
 
 LOCAL_TRIBE_COPY = "tribe_local.arktribe"
-
-intents = discord.Intents.default()
-client = discord.Client(intents=intents)
+CHECK_INTERVAL = 3  # seconds
 
 seen_entries = set()
+first_run = True
 
 # --- CATEGORY DEFINITIONS ---
 LOG_PATTERNS = {
     "death": [
         r"\bwas killed by\b",
+        r"\bwas slain by\b",
+        r"\bwas destroyed by\b",
         r"\bdied\b",
     ],
     # Add more categories as needed
 }
 
 def classify_log(entry):
-    """Classify log entry based on predefined patterns."""
     for category, patterns in LOG_PATTERNS.items():
         for pattern in patterns:
             if re.search(pattern, entry, re.IGNORECASE):
@@ -48,7 +46,6 @@ def classify_log(entry):
     return None
 
 def fetch_tribe_file():
-    """Download tribe file via SFTP."""
     try:
         transport = paramiko.Transport((SFTP_IP, SFTP_PORT))
         transport.connect(username=SFTP_USER, password=SFTP_PASSWORD)
@@ -57,12 +54,12 @@ def fetch_tribe_file():
         sftp.close()
         transport.close()
         return True
-    except Exception:
-        # Silently ignore errors here; no print
+    except Exception as e:
+        if DEBUG:
+            print(f"[ERROR] SFTP fetch failed: {e}")
         return False
 
 def extract_tribe_logs(filepath, category_filter=None):
-    """Extract log entries and optionally filter by category."""
     logs = []
     try:
         with open(filepath, "rb") as f:
@@ -84,44 +81,44 @@ def extract_tribe_logs(filepath, category_filter=None):
                         logs.append(log_entry)
                 except Exception:
                     break
-    except Exception:
-        # Silently ignore read errors; no print
-        pass
+    except Exception as e:
+        if DEBUG:
+            print(f"[ERROR] Reading tribe file failed: {e}")
     return logs
 
-first_run = True
+def send_discord_webhook(message):
+    try:
+        response = requests.post(DISCORD_WEBHOOK, json={"content": message})
+        if response.status_code != 204:
+            if DEBUG:
+                print(f"[ERROR] Webhook failed: {response.status_code} {response.text}")
+    except Exception as e:
+        if DEBUG:
+            print(f"[ERROR] Webhook exception: {e}")
 
-@tasks.loop(seconds=3)
-async def monitor_tribe_log():
+def monitor_loop():
     global first_run, seen_entries
 
-    if not fetch_tribe_file():
-        return
+    while True:
+        if not fetch_tribe_file():
+            continue
 
-    logs = extract_tribe_logs(LOCAL_TRIBE_COPY, category_filter="death")
+        logs = extract_tribe_logs(LOCAL_TRIBE_COPY, category_filter="death")
 
-    if first_run:
-        seen_entries.update(logs)
-        first_run = False
-        return
+        if first_run:
+            seen_entries.update(logs)
+            first_run = False
+        else:
+            for entry in logs:
+                if entry not in seen_entries:
+                    seen_entries.add(entry)
+                    msg = f"🦖 Dino Death Alert\n📝 {entry}"
+                    if DEBUG:
+                        print(msg)
+                    send_discord_webhook(msg)
 
-    for entry in logs:
-        if entry not in seen_entries:
-            seen_entries.add(entry)
-            msg = f"🦖 Dino Death Alert\n📝 {entry}"
-            if DEBUG:
-                print(msg)
-            else:
-                channel = client.get_channel(CHANNEL_ID)
-                if channel:
-                    try:
-                        await channel.send(msg)
-                    except Exception as e:
-                        if DEBUG:
-                            print(f"[ERROR] Failed to send message to Discord: {e}")
+        import time
+        time.sleep(CHECK_INTERVAL)
 
-@client.event
-async def on_ready():
-    monitor_tribe_log.start()
-
-client.run(DISCORD_TOKEN)
+if __name__ == "__main__":
+    monitor_loop()
