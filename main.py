@@ -91,14 +91,26 @@ def extract_tribe_logs(filepath, category_filter=None):
         pass
     return logs
 
-@tasks.loop(seconds=10)
+seen_entries = set()
+first_run = True  # Add this flag
+
+@tasks.loop(seconds=3)
 async def monitor_tribe_log():
+    global first_run, seen_entries
+
     if not fetch_tribe_file():
         return
 
     logs = extract_tribe_logs(LOCAL_TRIBE_COPY, category_filter="death")
-    global seen_entries
 
+    if first_run:
+        # Just add all existing entries on first run, no notify
+        for entry in logs:
+            seen_entries.add(entry)
+        first_run = False
+        return  # Skip sending any messages this iteration
+
+    # From now on notify only on new entries
     for entry in logs:
         if entry not in seen_entries:
             seen_entries.add(entry)
