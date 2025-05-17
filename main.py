@@ -3,15 +3,25 @@ import struct
 import warnings
 import paramiko
 import discord
+import logging
 from discord.ext import tasks
 from cryptography.utils import CryptographyDeprecationWarning
 
-# Suppress CryptographyDeprecationWarning from Paramiko
+# --- Suppress cryptography deprecation warnings more aggressively ---
 warnings.filterwarnings(
     "ignore",
     category=CryptographyDeprecationWarning,
     module="paramiko.*"
 )
+warnings.filterwarnings(
+    "ignore",
+    category=DeprecationWarning,
+    module="paramiko.*"
+)
+
+# --- Disable discord.py INFO logs, keep WARNING+ only ---
+logging.getLogger('discord').setLevel(logging.WARNING)
+logging.getLogger('paramiko').setLevel(logging.WARNING)
 
 # Load environment variables
 SFTP_IP = os.environ["SFTP_IP"]
@@ -41,14 +51,7 @@ def fetch_tribe_file():
     except Exception:
         return False
 
-def parse_arktribe_file(filepath):
-    """Reads the entire tribe file (no output needed here, just placeholder)."""
-    with open(filepath, "rb") as f:
-        data = f.read()
-    return data
-
 def extract_tribe_logs(filepath):
-    """Extract only death-related tribe log entries."""
     logs = []
     try:
         with open(filepath, "rb") as f:
@@ -78,14 +81,9 @@ async def monitor_tribe_log():
     if not fetch_tribe_file():
         return
 
-    # Parse entire tribe file (currently no output or usage, can be extended)
-    _ = parse_arktribe_file(LOCAL_TRIBE_COPY)
-
-    # Now extract only death logs from tribe file
     death_logs = extract_tribe_logs(LOCAL_TRIBE_COPY)
 
     global seen_entries
-
     channel = client.get_channel(CHANNEL_ID)
     if not channel:
         return
@@ -93,6 +91,10 @@ async def monitor_tribe_log():
     for entry in death_logs:
         if entry not in seen_entries:
             seen_entries.add(entry)
+
+            # Print ONLY death entries to console
+            print(f"🦖 Dino Death Alert: {entry}")
+
             try:
                 await channel.send(f"🦖 Dino Death Alert\n📝 {entry}")
             except Exception:
