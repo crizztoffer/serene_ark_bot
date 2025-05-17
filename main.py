@@ -34,11 +34,7 @@ seen_entries = set()
 LOG_PATTERNS = {
     "death": [
         r"\bwas killed by\b",
-        r"\bwas slain by\b",
-        r"\bwas destroyed by\b",
-        r"\bdied\b",
     ],
-    # Add more categories as needed
 }
 
 def classify_log(entry):
@@ -58,9 +54,11 @@ def fetch_tribe_file():
         sftp.get(TRIBE_PATH, LOCAL_TRIBE_COPY)
         sftp.close()
         transport.close()
+        if DEBUG:
+            print("[SFTP] Tribe file fetched successfully.")
         return True
-    except Exception:
-        # Silently ignore errors here; no print
+    except Exception as e:
+        print(f"[SFTP ERROR] {e}")
         return False
 
 def extract_tribe_logs(filepath, category_filter=None):
@@ -86,9 +84,8 @@ def extract_tribe_logs(filepath, category_filter=None):
                         logs.append(log_entry)
                 except Exception:
                     break
-    except Exception:
-        # Silently ignore read errors; no print
-        pass
+    except Exception as e:
+        print(f"[ERROR] Failed to read tribe log: {e}")
     return logs
 
 @tasks.loop(seconds=10)
@@ -102,19 +99,24 @@ async def monitor_tribe_log():
     for entry in logs:
         if entry not in seen_entries:
             seen_entries.add(entry)
-            msg = f"🦖 Dino Death Alert\n📝 {entry}"
-            channel = client.get_channel(CHANNEL_ID)
-            if channel:
-                try:
-                    await channel.send(msg)
-                    # Print only the dino death alert to console
-                    print(msg)
-                except Exception:
-                    # Silence any send errors; no print
-                    pass
+            if DEBUG:
+                # Print new deaths to console only
+                print(f"[NEW DEATH] {entry}")
+            else:
+                # Send new deaths to Discord only
+                msg = f"🦖 Dino Death Alert\n📝 {entry}"
+                channel = client.get_channel(CHANNEL_ID)
+                if channel:
+                    try:
+                        await channel.send(msg)
+                    except Exception as e:
+                        print(f"[DISCORD ERROR] Failed to send message: {e}")
+                else:
+                    print("[DISCORD ERROR] Channel not found")
 
 @client.event
 async def on_ready():
+    print(f"[BOT] Connected as {client.user}")
     monitor_tribe_log.start()
 
 client.run(DISCORD_TOKEN)
