@@ -46,7 +46,7 @@ def fetch_tribe_file():
         return False
 
 def extract_tribe_logs(filepath):
-    """Extract logs from the tribe file binary structure."""
+    """Extract death logs only from the tribe file."""
     logs = []
     try:
         with open(filepath, "rb") as f:
@@ -57,13 +57,11 @@ def extract_tribe_logs(filepath):
                     length = struct.unpack_from("<i", data, pos)[0]
                     pos += 4
                     if length <= 0 or pos + length > len(data):
-                        # Malformed entry or end of data
                         continue
-                    string_bytes = data[pos:pos + length - 1]  # exclude trailing null
+                    string_bytes = data[pos:pos + length - 1]
                     pos += length
                     log_entry = string_bytes.decode("utf-8", errors="ignore")
-                    # Filter logs for kill events or all logs in debug mode
-                    if "was killed by" in log_entry or DEBUG:
+                    if "was killed by" in log_entry:  # ONLY death entries
                         logs.append(log_entry)
                 except Exception:
                     break
@@ -73,10 +71,7 @@ def extract_tribe_logs(filepath):
 
 @tasks.loop(seconds=10)
 async def monitor_tribe_log():
-    """Periodically fetch tribe log, parse, and send new kill messages to Discord."""
     if not fetch_tribe_file():
-        if DEBUG:
-            print("[DEBUG] Skipping this cycle due to fetch failure.")
         return
 
     logs = extract_tribe_logs(LOCAL_TRIBE_COPY)
@@ -84,8 +79,8 @@ async def monitor_tribe_log():
 
     for entry in logs:
         if DEBUG:
-            print(f"[DEBUG] Log Entry: {entry}")
-        if entry not in seen_entries and "was killed by" in entry:
+            print(f"[DEBUG] Death Log Entry: {entry}")  # only deaths printed in debug
+        if entry not in seen_entries:
             seen_entries.add(entry)
             msg = f"🦖 Dino Death Alert\n📝 {entry}"
             channel = client.get_channel(CHANNEL_ID)
@@ -93,7 +88,7 @@ async def monitor_tribe_log():
                 try:
                     await channel.send(msg)
                     if DEBUG:
-                        print("[DEBUG] Sent message to Discord.")
+                        print("[DEBUG] Sent death alert to Discord.")
                 except Exception as e:
                     print(f"[DISCORD ERROR] Failed to send message: {e}")
             else:
