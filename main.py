@@ -18,7 +18,7 @@ SFTP_PORT = int(os.environ.get("SFTP_PORT", 22))
 SFTP_USER = os.environ["SFTP_USER"]
 SFTP_PASSWORD = os.environ["SFTP_PASSWORD"]
 TRIBE_PATH = os.environ["TRIBE_PATH"]
-DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1373237680116203591/oA-a9MoBXMjAhKIkdGJP-CAidO9z2642Ormq1SWrpc1k5XpUT8_khFqFWocRWu2FiV5o"
+DISCORD_WEBHOOK = "https://discord.com/api/webhooks/" + os.environ["DISCORD_WEBHOOK"]
 DEBUG = os.environ.get("DEBUG", "false").lower() == "true"
 
 LOCAL_TRIBE_COPY = "tribe_local.arktribe"
